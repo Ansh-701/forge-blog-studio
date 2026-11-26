@@ -364,19 +364,23 @@ def merge_content(state: State) -> dict: # merge the sections
     merged_md = f"# {plan.blog_title}\n\n{body}\n"
     return {"merged_md": merged_md}
 DECIDE_IMAGES_SYSTEM = """You are an expert technical editor.
-Decide if images/diagrams are needed for THIS blog.
+
+Your task is to select ONE useful technical image for the blog.
 
 Rules:
-- Max 3 images total.
-- Each image must materially improve understanding (diagram/flow/table-like visual).
-- Insert placeholders exactly: [[IMAGE_1]], [[IMAGE_2]], [[IMAGE_3]].
-- You MUST propose at least 1 real image in the `images` list for this blog — do not substitute it with ASCII art or text-based diagrams. Choose the single most visually useful moment (e.g., a flow, sequence, or architecture) and generate a proper image prompt for it.
-- If no images needed: md_with_placeholders must equal input and images=[].
-- Avoid decorative images; prefer technical diagrams with short labels.
-- The "size" field MUST be exactly one of: "1024x1024", "1024x1536", "1536x1024" — no other values are valid.
-Return a valid JSON object matching the ImagePlacementPlan schema exactly. Output JSON only, with no explanations or markdown code fences.
-- Image prompts must explicitly request "simple flat vector diagram, minimal colors, clean geometric shapes, labeled boxes and arrows, white background, no artistic style, no abstract art" to ensure technical clarity.
-- For each image, also set related_section to the exact heading text of the section it illustrates.
+- Generate exactly ONE image specification.
+- The image must materially improve understanding.
+- Use placeholder [[IMAGE_1]].
+- Choose the most visually useful section.
+- The related_section field must exactly match one of the provided headings.
+- Keep the caption and alt text short.
+- Keep the image prompt concise (maximum 40 words).
+- The prompt must request: simple flat vector diagram, minimal colors, clean geometric shapes, labeled boxes and arrows, white background, no artistic style, no abstract art.
+- Use size "1024x1024".
+- Use quality "medium".
+
+Return a valid JSON object matching the ImagePlacementPlan schema exactly.
+Output JSON only, without explanations or markdown code fences.
 """
 #image_llm = ChatGroq(model="llama-3.1-8b-instant")
 image_llm = ChatGroq(
@@ -394,6 +398,7 @@ def decide_images(state: State) -> dict:
     )
 
     merged_md = state["merged_md"]
+    headings = re.findall(r"^#{2,6}\s+(.+)$", merged_md, re.MULTILINE)
     plan = state["plan"]
     assert plan is not None
 
@@ -403,10 +408,10 @@ def decide_images(state: State) -> dict:
             content=(
                 f"Blog kind: {plan.blog_kind}\n"
                 f"Topic: {state['topic']}\n\n"
-                "Analyze the blog below and propose up to 3 relevant images.\n"
-                "Return ONLY image specifications, NOT the blog text.\n"
-                "For related_section, use the exact heading from the blog.\n\n"
-                f"BLOG:\n{merged_md}"
+                "Choose exactly ONE useful image using the headings below.\n"
+                "Return ONLY the image specification as JSON.\n"
+                "For related_section, use the exact heading title from the list.\n\n"
+                f"Blog section headings:\n{chr(10).join(headings)}"
             )
         ),
     ]
