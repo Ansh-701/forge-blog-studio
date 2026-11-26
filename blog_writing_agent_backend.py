@@ -379,8 +379,8 @@ Rules:
 - Use size "1024x1024".
 - Use quality "medium".
 
-Return a valid JSON object matching the ImagePlacementPlan schema exactly.
-Output JSON only, without explanations or markdown code fences.
+Return a valid json object matching the ImagePlacementPlan schema exactly.
+Output json only, without explanations or markdown code fences.
 """
 #image_llm = ChatGroq(model="llama-3.1-8b-instant")
 image_llm = ChatGroq(
@@ -409,7 +409,7 @@ def decide_images(state: State) -> dict:
                 f"Blog kind: {plan.blog_kind}\n"
                 f"Topic: {state['topic']}\n\n"
                 "Choose exactly ONE useful image using the headings below.\n"
-                "Return ONLY the image specification as JSON.\n"
+                "Return ONLY the image specification as json.\n"
                 "For related_section, use the exact heading title from the list.\n\n"
                 f"Blog section headings:\n{chr(10).join(headings)}"
             )
