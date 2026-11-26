@@ -49,29 +49,23 @@ def images_zip(images_dir: Path) -> Optional[bytes]:
     return buf.getvalue()
 
 
-def try_stream(graph_app, inputs: Dict[str, Any], config: Dict[str, Any]) -> Iterator[Tuple[str, Any]]:
+def try_stream(graph_app, inputs, config):
+
+    current_state = dict(inputs)
+
     try:
-        for step in graph_app.stream(inputs, config=config, stream_mode="updates"):
+        for step in graph_app.stream(
+            inputs,
+            config=config,
+            stream_mode="updates"
+        ):
+            current_state = extract_latest_state(current_state, step)
             yield ("updates", step)
-        out = graph_app.invoke(inputs, config=config)
-        yield ("final", out)
-        return
-    except Exception:
-        pass
 
-    try:
-        for step in graph_app.stream(inputs, config=config, stream_mode="values"):
-            yield ("values", step)
-        out = graph_app.invoke(inputs, config=config)
-        yield ("final", out)
-        return
-    except Exception:
-        pass
+        yield ("final", current_state)
 
-    out = graph_app.invoke(inputs, config=config)
-    yield ("final", out)
-    yield ("final", out)
-
+    except Exception as e:
+        raise RuntimeError(f"Graph execution failed: {e}") from e
 
 def extract_latest_state(current_state: Dict[str, Any], step_payload: Any) -> Dict[str, Any]:
     if isinstance(step_payload, dict):
@@ -81,7 +75,6 @@ def extract_latest_state(current_state: Dict[str, Any], step_payload: Any) -> Di
         else:
             current_state.update(step_payload)
     return current_state
-
 
 
 # Markdown renderer that supports local images

@@ -58,3 +58,6 @@ class ImageSpec(BaseModel): # schema for the image if we need image the llm will
 class GlobalImagePlan(BaseModel): #list of the image spec we will give to the generater node and md with placeholder and the prompt
     md_with_placeholders: str
     images: List[ImageSpec] = Field(default_factory=list) # have all the keys of imagespecs 
+
+class ImagePlacementPlan(BaseModel):
+    images: List[ImageSpec] = Field(default_factory=list)

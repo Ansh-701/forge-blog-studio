@@ -25,6 +25,7 @@ from schemas import (
     EvidencePack,
     ImageSpec,
     GlobalImagePlan,
+    ImagePlacementPlan,
 )
 
 # Blog Writer (Router → (Research?) → Orchestrator → Workers → ReducerWithImages)
@@ -127,8 +128,9 @@ def _tavily_search(query: str, max_results: int = 5) -> List[dict]: # takes ever
                 }
             )
         return out
-    except Exception:
-        return []
+    except Exception as e:
+     print(f"Tavily search failed for query '{query}': {e}")
+     return []
 
 def _iso_to_date(s: Optional[str]) -> Optional[date]:
     if not s:
@@ -207,7 +209,7 @@ ORCH_SYSTEM = """You are a senior technical writer and developer advocate.
 Produce a highly actionable outline for a technical blog post.
 
 Requirements:
-- 5-6 tasks, each with goal + 3–6 bullets + target_words(aim for 250-400 words each section). 
+- 3-4 tasks, each with goal + 3-5 bullets + target_words (aim for 250-350 words per section). 
 - Tags are flexible; do not force a fixed taxonomy.
 
 Grounding:
@@ -285,7 +287,9 @@ Scope guard:
 Grounding:
 - If mode=="open_book": do not introduce any specific event/company/model/funding/policy claim unless supported by provided Evidence URLs.
   For each supported claim, attach a Markdown link ([Source](URL)).
-  If unsupported, write "Not found in provided sources."
+  - If a specific claim is unsupported by the provided evidence, omit that claim.
+  - Do not write phrases such as "Not found in provided sources" in the published article.
+  - Explain general concepts only when they can be explained without inventing unsupported facts.
 - If requires_citations==true (hybrid tasks): cite Evidence URLs for external claims.
 - Never invent specific named entities (drug names, product names, trial names, model names, company names, statistics, or dates) that do not appear verbatim in the provided Evidence. If a specific detail isn't in the evidence, write generally about the topic instead of fabricating a plausible-sounding specific.
 
@@ -382,9 +386,10 @@ image_llm = ChatGroq(
 # this decide image node will get the full markdown so the token per limit was occusring so for this we will not give the full markdown include will do silicing and guve first 6k tokens 
  # decides if there is a need to upload images if yes then it will create placeholders in the md file or in the blog and for each placeholdersthe llm will give the prompt
   
-def decide_images(state: State) -> dict:  # decides if there is a need to upload images if yes then it will create placeholders in the md file or in the blog and for each placeholdersthe llm will give the prompt
-  
-    planner = image_llm.with_structured_output(GlobalImagePlan)
+def decide_images(state: State) -> dict:
+
+    planner = image_llm.with_structured_output(ImagePlacementPlan)
+
     merged_md = state["merged_md"]
     plan = state["plan"]
     assert plan is not None
@@ -395,22 +400,57 @@ def decide_images(state: State) -> dict:  # decides if there is a need to upload
             content=(
                 f"Blog kind: {plan.blog_kind}\n"
                 f"Topic: {state['topic']}\n\n"
-                "Insert placeholders + propose image prompts.\n\n"
-                f"{merged_md[:6000]}"
+                "Analyze the blog below and propose up to 3 relevant images.\n"
+                "Return ONLY image specifications, NOT the blog text.\n"
+                "For related_section, use the exact heading from the blog.\n\n"
+                f"BLOG:\n{merged_md}"
             )
         ),
     ]
 
-    try: # same retry we are doin becasue of the token limit problem so we will ivoke the messages if the limit reach we will wait 10 sec and retry again
+    try:
         image_plan = planner.invoke(messages)
-    except Exception:
+
+    except Exception as e:
+        print(f"Image planning failed: {e}")
         import time
         time.sleep(10)
         image_plan = planner.invoke(messages)
 
+    md_with_placeholders = merged_md
+    image_specs = []
+
+    for img in image_plan.images:
+
+        spec = img.model_dump()
+
+        heading = spec["related_section"]
+        placeholder = spec["placeholder"]
+
+        # Find the exact section heading
+        heading_pattern = re.compile(
+            r"^(#{1,6}\s+.*" + re.escape(heading) + r".*)$",
+            re.MULTILINE
+        )
+
+        match = heading_pattern.search(md_with_placeholders)
+
+        if match:
+            insertion = match.group(1) + "\n\n" + placeholder
+            md_with_placeholders = (
+                md_with_placeholders[:match.start()]
+                + insertion
+                + md_with_placeholders[match.end():]
+            )
+
+            image_specs.append(spec)
+
+        else:
+            print(f"Image placement skipped: heading not found: {heading}")
+
     return {
-        "md_with_placeholders": image_plan.md_with_placeholders,
-        "image_specs": [img.model_dump() for img in image_plan.images],
+        "md_with_placeholders": md_with_placeholders,
+        "image_specs": image_specs,
     }
 def _gemini_generate_image_bytes(prompt: str) -> bytes:
     import requests
@@ -434,39 +474,48 @@ def generate_and_place_images(state: State) -> dict:
     plan = state["plan"]
     assert plan is not None
 
-    md = state["merged_md"]
+    # Use the markdown containing image placeholders
+    md = state.get("md_with_placeholders") or state["merged_md"]
+
     image_specs = state.get("image_specs", []) or []
     print("Image specs count:", len(image_specs))
-
-    if not image_specs:
-        filename = f"{_safe_slug(plan.blog_title)}.md"
-        Path(filename).write_text(md, encoding="utf-8")
-        return {"final": md}
 
     images_dir = Path("images")
     images_dir.mkdir(exist_ok=True)
 
-    image_blocks = []
     for spec in image_specs:
-        filename = spec["filename"]
+        placeholder = spec["placeholder"]
+        filename = Path(spec["filename"]).name
         out_path = images_dir / filename
 
-        if not out_path.exists():
-            try:
+        try:
+            # Generate image only if it doesn't already exist
+            if not out_path.exists():
                 img_bytes = _gemini_generate_image_bytes(spec["prompt"])
                 out_path.write_bytes(img_bytes)
-                image_blocks.append(f"**Illustrates: {spec.get('related_section', 'General')}**\n\n![{spec['alt']}](images/{filename})\n*{spec['caption']}*")
-            except Exception as e:
-                print(f"Image generation failed for {filename}: {e}")
-                continue
-        else:
-          image_blocks.append(f"**Illustrates: {spec.get('related_section', 'General')}**\n\n![{spec['alt']}](images/{filename})\n*{spec['caption']}*") # in the lasst when we put the image before it the section should come 
 
-    if image_blocks:
-        md = md + "\n\n---\n\n## Images\n\n" + "\n\n".join(image_blocks)
+            # Create the Markdown image block
+            image_block = (
+                f"![{spec['alt']}](images/{filename})\n\n"
+                f"*{spec['caption']}*"
+            )
 
+            # Replace the placeholder with the actual image
+            if placeholder in md:
+                md = md.replace(placeholder, image_block)
+            else:
+                print(f"Warning: Placeholder {placeholder} not found in markdown.")
+
+        except Exception as e:
+            print(f"Image generation failed for {filename}: {e}")
+
+            # Remove the placeholder if image generation fails
+            md = md.replace(placeholder, "")
+
+    # Save final Markdown
     filename = f"{_safe_slug(plan.blog_title)}.md"
     Path(filename).write_text(md, encoding="utf-8")
+
     return {"final": md}
 
 #reducer subgraph
