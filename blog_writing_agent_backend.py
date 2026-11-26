@@ -374,7 +374,7 @@ Rules:
 - If no images needed: md_with_placeholders must equal input and images=[].
 - Avoid decorative images; prefer technical diagrams with short labels.
 - The "size" field MUST be exactly one of: "1024x1024", "1024x1536", "1536x1024" — no other values are valid.
-Return strictly GlobalImagePlan.
+Return a valid JSON object matching the ImagePlacementPlan schema exactly. Output JSON only, with no explanations or markdown code fences.
 - Image prompts must explicitly request "simple flat vector diagram, minimal colors, clean geometric shapes, labeled boxes and arrows, white background, no artistic style, no abstract art" to ensure technical clarity.
 - For each image, also set related_section to the exact heading text of the section it illustrates.
 """
