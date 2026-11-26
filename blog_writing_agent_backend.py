@@ -384,7 +384,10 @@ Output json only, without explanations or markdown code fences.
 """
 #image_llm = ChatGroq(model="llama-3.1-8b-instant")
 image_llm = ChatGroq(
-    model="openai/gpt-oss-120b",temperature=0
+    model="openai/gpt-oss-120b",
+    temperature=0,
+    reasoning_effort="low",
+    reasoning_format="hidden"
 )
 
 # this decide image node will get the full markdown so the token per limit was occusring so for this we will not give the full markdown include will do silicing and guve first 6k tokens 
