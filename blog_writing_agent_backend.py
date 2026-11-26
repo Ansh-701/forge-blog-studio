@@ -388,7 +388,10 @@ image_llm = ChatGroq(
   
 def decide_images(state: State) -> dict:
 
-    planner = image_llm.with_structured_output(ImagePlacementPlan)
+    planner = image_llm.with_structured_output(
+    ImagePlacementPlan,
+    method="json_mode"
+    )
 
     merged_md = state["merged_md"]
     plan = state["plan"]
